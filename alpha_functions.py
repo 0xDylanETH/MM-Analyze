@@ -816,7 +816,7 @@ def alpha082(o, v, sector):
     """
     pass
 
-def alpha083(c, h, l, v):
+def alpha083(c, h, l, v, vwap):
     """(rank(ts_lag((high - low) / ts_mean(close, 5), 2)) * rank(rank(volume)) / 
             (((high - low) / ts_mean(close, 5) / (vwap - close)))
     """
