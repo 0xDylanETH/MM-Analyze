@@ -235,6 +235,34 @@ class TradingSimulator:
         # Track fees and funding
         self.total_trading_fees = 0
         self.total_funding_fees = 0
+        
+        # === NEW: Drawdown tracking ===
+        self.balance_history = [config['STARTING_BALANCE']]  # Track balance over time
+        self.peak_balance = config['STARTING_BALANCE']       # Highest balance seen
+        self.max_drawdown = 0.0                              # Max drawdown amount
+        self.max_drawdown_pct = 0.0                          # Max drawdown percentage
+        self.current_drawdown = 0.0                          # Current drawdown
+        self.drawdown_start_balance = config['STARTING_BALANCE']  # Balance when drawdown started
+
+    def update_drawdown_tracking(self):
+        """Update drawdown metrics after balance change"""
+        # Record current balance
+        self.balance_history.append(self.balance)
+        
+        # Update peak if new high
+        if self.balance > self.peak_balance:
+            self.peak_balance = self.balance
+            self.drawdown_start_balance = self.balance
+            self.current_drawdown = 0.0
+        else:
+            # Calculate current drawdown
+            self.current_drawdown = self.peak_balance - self.balance
+            current_drawdown_pct = (self.current_drawdown / self.peak_balance) * 100
+            
+            # Update max drawdown if worse
+            if self.current_drawdown > self.max_drawdown:
+                self.max_drawdown = self.current_drawdown
+                self.max_drawdown_pct = current_drawdown_pct
 
     def calculate_trading_fee(self, trade_value, is_maker=False):
         """Calculate trading fee based on maker/taker"""
@@ -341,6 +369,7 @@ class TradingSimulator:
                 # Apply funding fee to balance
                 self.balance -= funding_fee
                 self.total_funding_fees += funding_fee
+                self.update_drawdown_tracking()
 
                 # Store funding fee in position for tracking
                 if 'funding_fees' not in self.active_position:
@@ -383,6 +412,7 @@ class TradingSimulator:
 
                     self.balance += pnl['unrealized_pnl'] - exit_fee
                     self.total_trading_fees += exit_fee
+                    self.update_drawdown_tracking()
 
                     self.trades.append(self.active_position.copy())
                     self.active_position = None
@@ -399,6 +429,7 @@ class TradingSimulator:
                     # Deduct entry fee from balance
                     self.balance -= entry_fee
                     self.total_trading_fees += entry_fee
+                    self.update_drawdown_tracking()
 
                     self.trade_id += 1
                     self.active_position = {
@@ -437,12 +468,15 @@ class TradingSimulator:
 
             self.balance += pnl['unrealized_pnl'] - exit_fee
             self.total_trading_fees += exit_fee
+            self.update_drawdown_tracking()
 
             self.trades.append(self.active_position.copy())
 
         print(f"✅ Simulation complete: {len(self.trades)} trades executed")
         print(f"💸 Total trading fees: ${self.total_trading_fees:.2f}")
         print(f"💰 Total funding fees: ${self.total_funding_fees:.2f}")
+        print(f"📉 Max Drawdown: ${self.max_drawdown:.2f} ({self.max_drawdown_pct:.2f}%)")
+        print(f"📈 Peak Balance: ${self.peak_balance:.2f}")
 
         return self.trades
 
@@ -451,7 +485,7 @@ class PerformanceAnalyzer:
     """Analyze trading performance and generate metrics"""
 
     @staticmethod
-    def calculate_metrics(trades, starting_balance, final_balance, total_trading_fees, total_funding_fees):
+    def calculate_metrics(trades, starting_balance, final_balance, total_trading_fees, total_funding_fees, simulator):
         print("\n" + "=" * 60)
         print("📊 PERFORMANCE METRICS ANALYSIS (Including Fees)")
         print("=" * 60)
@@ -486,6 +520,11 @@ class PerformanceAnalyzer:
         avg_trading_fee_per_trade = total_trading_fees / total_trades if total_trades > 0 else 0
         avg_funding_fee_per_trade = total_funding_fees / total_trades if total_trades > 0 else 0
 
+        # === NEW: Drawdown metrics ===
+        max_drawdown = simulator.max_drawdown
+        max_drawdown_pct = simulator.max_drawdown_pct
+        peak_balance = simulator.peak_balance
+
         metrics = {
             'total_trades': total_trades,
             'final_balance': final_balance,
@@ -502,7 +541,11 @@ class PerformanceAnalyzer:
             'avg_loss': avg_loss,
             'profit_factor': profit_factor,
             'avg_trading_fee_per_trade': avg_trading_fee_per_trade,
-            'avg_funding_fee_per_trade': avg_funding_fee_per_trade
+            'avg_funding_fee_per_trade': avg_funding_fee_per_trade,
+            'max_drawdown': max_drawdown,
+            'max_drawdown_pct': max_drawdown_pct,
+            'peak_balance': peak_balance,
+            'calmar_ratio': return_pct / max_drawdown_pct if max_drawdown_pct > 0 else float('inf'),
         }
 
         # Display metrics
@@ -521,6 +564,9 @@ class PerformanceAnalyzer:
         print(f"⚖️ Profit Factor: {profit_factor:.2f}")
         print(f"💸 Avg Trading Fee/Trade: ${avg_trading_fee_per_trade:.2f} USDT")
         print(f"💰 Avg Funding Fee/Trade: ${avg_funding_fee_per_trade:.2f} USDT")
+        print(f"📉 Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct:.2f}%)")
+        print(f"📈 Peak Balance: ${peak_balance:.2f}")
+        print(f"📊 Calmar Ratio: {metrics['calmar_ratio']:.2f} (Return/MaxDD)")
 
         return metrics
 
@@ -561,6 +607,45 @@ class PerformanceAnalyzer:
             print(f"   Reason: {trade['exit_reason']} | Fees: ${trade.get('total_fees', 0):.2f}")
             print()
 
+    @staticmethod
+    def plot_balance_and_drawdown(simulator):
+        """Plot balance curve and drawdown"""
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), sharex=True)
+        
+        balance_history = simulator.balance_history
+        time_points = range(len(balance_history))
+        
+        # Calculate running peak and drawdown
+        running_peak = []
+        drawdown_pct = []
+        current_peak = balance_history[0]
+        
+        for balance in balance_history:
+            if balance > current_peak:
+                current_peak = balance
+            running_peak.append(current_peak)
+            dd_pct = ((current_peak - balance) / current_peak) * 100
+            drawdown_pct.append(-dd_pct)  # Negative for plotting below zero
+        
+        # Plot 1: Balance vs Peak
+        ax1.plot(time_points, balance_history, 'b-', linewidth=2, label='Balance')
+        ax1.plot(time_points, running_peak, 'g--', linewidth=1, alpha=0.7, label='Peak Balance')
+        ax1.set_title('Account Balance Over Time')
+        ax1.set_ylabel('Balance (USDT)')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot 2: Drawdown
+        ax2.fill_between(time_points, drawdown_pct, 0, color='red', alpha=0.3)
+        ax2.plot(time_points, drawdown_pct, 'r-', linewidth=1)
+        ax2.set_title(f'Drawdown Over Time (Max: {simulator.max_drawdown_pct:.2f}%)')
+        ax2.set_xlabel('Time Points')
+        ax2.set_ylabel('Drawdown (%)')
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.show()
+
 # === MAIN EXECUTION ===
 def main():
     """Main execution function"""
@@ -595,7 +680,8 @@ def main():
             CONFIG['STARTING_BALANCE'], 
             simulator.balance,
             simulator.total_trading_fees,
-            simulator.total_funding_fees
+            simulator.total_funding_fees,
+            simulator
         )
         
         PerformanceAnalyzer.analyze_by_trend(trades)
@@ -604,6 +690,7 @@ def main():
         # Step 7: Visualization
         print("\n📊 Creating visualizations...")
         create_visualizations(df, trades, metrics)
+        PerformanceAnalyzer.plot_balance_and_drawdown(simulator)
     else:
         print("❌ No trades executed. Cannot analyze performance.")
 
