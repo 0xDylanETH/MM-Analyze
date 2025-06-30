@@ -5,15 +5,16 @@ from datetime import datetime
 import numpy as np
 import time
 from config import *
+import os
 
 class DataHandler:
     def __init__(self, api_key=None, api_secret=None):
-        self.client = Client(api_key, api_secret, requests_params={
-                'proxies': {
-                    'http': binance_proxy,
-                    'https': binance_proxy,
-                    }
-                })
+        # Treat 'None' (string) and '' as no proxy
+        if binance_proxy and binance_proxy != 'None' and binance_proxy.strip() != '':
+            requests_params = {'proxies': {'http': binance_proxy, 'https': binance_proxy}}
+        else:
+            requests_params = {}
+        self.client = Client(api_key, api_secret, requests_params=requests_params)
 
     @staticmethod
     def transform_df(df):
@@ -102,26 +103,51 @@ def merge_metadata(df_all, metadata):
 
     return df_merged
 
-# if __name__ == '__main__':
-
-    # data_handler = DataHandler()
-    # symbols = data_handler.get_binance_symbols()[:20]
-    # print(symbols)
-    #
-    # df_all = load_multi_symbol_data(data_handler, symbols, interval='1h', start_str='2024-07-01 00:00:00')
-    # print(df_all.info())
-    # print(df_all.head())
-    # df_all.to_pickle('data/price.pkl')
-
-    # metadata = get_coingecko_metadata()
-    # print(metadata.info())
-    # print(metadata.head())
-    # metadata.to_pickle('data/metadata.pkl')
-    #
-    # df_all = pd.read_pickle('data/price.pkl')
-    # metadata = pd.read_pickle('data/metadata.pkl')
-    # df_merged = merge_metadata(df_all, metadata)
-    # print(df_merged.info())
-    # print(df_merged.head())
-    # df_merged.to_pickle('data/merged_df.pkl')
+if __name__ == '__main__':
+    # Initialize data handler without API keys (for public data)
+    data_handler = DataHandler()
+    
+    # Get top 20 USDT trading pairs
+    symbols = data_handler.get_binance_symbols()[:20]
+    print(f"Fetching data for {len(symbols)} symbols: {symbols}")
+    
+    # Load historical data for the last 30 days
+    print("Loading historical price data...")
+    df_all = load_multi_symbol_data(data_handler, symbols, interval='1h', start_str='30 days ago UTC')
+    print("Price data loaded successfully!")
+    print("\nPrice data info:")
+    print(df_all.info())
+    print("\nSample data:")
+    print(df_all.head())
+    
+    # Save price data
+    os.makedirs('data', exist_ok=True)
+    df_all.to_pickle('data/price.pkl')
+    print("\nPrice data saved to data/price.pkl")
+    
+    # Get CoinGecko metadata
+    print("\nFetching CoinGecko metadata...")
+    metadata = get_coingecko_metadata()
+    print("Metadata loaded successfully!")
+    print("\nMetadata info:")
+    print(metadata.info())
+    print("\nSample metadata:")
+    print(metadata.head())
+    
+    # Save metadata
+    metadata.to_pickle('data/metadata.pkl')
+    print("\nMetadata saved to data/metadata.pkl")
+    
+    # Merge data
+    print("\nMerging price data with metadata...")
+    df_merged = merge_metadata(df_all, metadata)
+    print("Data merged successfully!")
+    print("\nMerged data info:")
+    print(df_merged.info())
+    print("\nSample merged data:")
+    print(df_merged.head())
+    
+    # Save merged data
+    df_merged.to_pickle('data/merged_df.pkl')
+    print("\nMerged data saved to data/merged_df.pkl")
 
