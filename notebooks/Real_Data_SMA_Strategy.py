@@ -31,8 +31,8 @@ print("=" * 60)
 CONFIG = {
     # Data Parameters
     'SYMBOL': 'BTCUSDT',
-    'INTERVAL': '1h',  # 1h, 4h, 1d
-    'DAYS_BACK': 30,   # Number of days to fetch
+    'INTERVAL': '5m',   # Đổi sang nến 5 phút
+    'DAYS_BACK': 7,     # Lấy 7 ngày gần nhất để tránh quá nhiều dữ liệu
     
     # Strategy Parameters
     'LEVERAGE': 5,
